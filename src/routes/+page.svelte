@@ -6,7 +6,6 @@
   import { fetchSparql } from '$lib/api/sparql.js';
 
   let tab = 'table';
-  let activeTab = 0;
 
   // Data and loading states for each query
   let results = [];
@@ -14,6 +13,13 @@
   let loading = true;
   let loadingUnits = true;
   let error = null;
+
+  // For graph node selection
+  let selectedNodeId = null;
+  let selectedNodeInfo = null;
+
+  // Map for quick lookup of unit info by node id (quantity URI)
+  let unitsMap = new Map();
 
   // Fetch all queries on mount
   onMount(async () => {
@@ -34,7 +40,11 @@
       }));
       loadingUnits = false;
 
-      // Optionally: fetch second query here and store as needed
+      // Build unitsMap for fast lookup
+      unitsMap = new Map();
+      for (const row of unitsResults) {
+        unitsMap.set(row.quantity, row);
+      }
 
       // Draw graph if graph tab is active
       if (tab === 'graph' && results.length > 0) {
@@ -55,6 +65,31 @@
   // Status indicator
   $: allLoaded = !loading && !loadingUnits;
 
+  // Update selected node info when selectedNodeId changes
+  $: if (selectedNodeId) {
+    selectedNodeInfo = unitsMap.get(selectedNodeId) || null;
+  } else {
+    selectedNodeInfo = null;
+  }
+
+  // List of linkedTo elements for the selected node
+  $: linkedToList = [];
+  $: if (selectedNodeId && results.length > 0) {
+    linkedToList = results
+      .filter(row => row.item.value === selectedNodeId)
+      .map(row => ({
+        linkTo: row.linkTo.value,
+        linkToLabel: row.linkToLabel?.value ?? ''
+      }));
+  } else {
+    linkedToList = [];
+  }
+
+  // Reference to the SVG and simulation for zooming/focusing
+  let svgElement;
+  let simulationRef;
+  let nodesRef = [];
+
   function drawGraph() {
     const width = 800;
     const height = 600;
@@ -74,14 +109,15 @@
     }
 
     const nodes = Array.from(nodesMap.values());
+    nodesRef = nodes; // Save for focusing
 
     d3.select('#graph').selectAll('*').remove();
 
-    const svg = d3.select('#graph')
+    svgElement = d3.select('#graph')
       .attr('width', width)
       .attr('height', height);
 
-    const container = svg.append('g'); // Zoomable group
+    const container = svgElement.append('g'); // Zoomable group
 
     const zoom = d3.zoom()
       .scaleExtent([0.1, 5])
@@ -89,9 +125,9 @@
         container.attr('transform', event.transform);
       });
 
-    svg.call(zoom);
+    svgElement.call(zoom);
 
-    const simulation = d3.forceSimulation(nodes)
+    simulationRef = d3.forceSimulation(nodes)
       .force('link', d3.forceLink(links).id(d => d.id).distance(150))
       .force('charge', d3.forceManyBody().strength(-400))
       .force('center', d3.forceCenter(width / 2, height / 2));
@@ -109,7 +145,16 @@
       .data(nodes)
       .enter().append('circle')
       .attr('r', 10)
-      .attr('fill', '#69b3a2')
+      .attr('fill', d => d.id === selectedNodeId ? '#ff9800' : '#69b3a2')
+      .attr('class', d => d.id === selectedNodeId ? 'highlighted' : '')
+      .style('cursor', 'pointer')
+      .on('click', (event, d) => {
+        selectedNodeId = d.id;
+        setTimeout(() => {
+          drawGraph();
+          focusOnNode(d.id);
+        }, 0);
+      })
       .call(d3.drag()
         .on('start', dragstarted)
         .on('drag', dragged)
@@ -124,7 +169,7 @@
       .attr('dx', 12)
       .attr('dy', 4);
 
-    simulation.on('tick', () => {
+    simulationRef.on('tick', () => {
       link
         .attr('x1', d => d.source.x)
         .attr('y1', d => d.source.y)
@@ -140,8 +185,13 @@
         .attr('y', d => d.y);
     });
 
+    // Focus on selected node after drawing
+    if (selectedNodeId) {
+      setTimeout(() => focusOnNode(selectedNodeId), 100);
+    }
+
     function dragstarted(event, d) {
-      if (!event.active) simulation.alphaTarget(0.3).restart();
+      if (!event.active) simulationRef.alphaTarget(0.3).restart();
       d.fx = d.x;
       d.fy = d.y;
     }
@@ -152,10 +202,43 @@
     }
 
     function dragended(event, d) {
-      if (!event.active) simulation.alphaTarget(0);
+      if (!event.active) simulationRef.alphaTarget(0);
       d.fx = null;
       d.fy = null;
     }
+  }
+
+  // Focus/zoom on a node by id
+  function focusOnNode(nodeId) {
+    if (!svgElement || !nodesRef.length) return;
+    const width = 800;
+    const height = 600;
+    const node = nodesRef.find(n => n.id === nodeId);
+    if (!node || typeof node.x !== 'number' || typeof node.y !== 'number') return;
+
+    const scale = 1.5;
+    const translate = [
+      width / 2 - node.x * scale,
+      height / 2 - node.y * scale
+    ];
+
+    svgElement.transition()
+      .duration(500)
+      .call(
+        d3.zoom().transform,
+        d3.zoomIdentity
+          .translate(translate[0], translate[1])
+          .scale(scale)
+      );
+  }
+
+  // When clicking a linkedTo node in the infobox
+  function selectAndFocusNode(nodeId) {
+    selectedNodeId = nodeId;
+    setTimeout(() => {
+      drawGraph();
+      focusOnNode(nodeId);
+    }, 0);
   }
 </script>
 
@@ -205,11 +288,44 @@
     </table>
   {/if}
 {:else if tab === 'graph'}
-  {#if loading}
-    <p>Loading...</p>
-  {:else}
-    <svg id="graph"></svg>
-  {/if}
+  <div class="graph-container">
+    {#if loading}
+      <p>Loading...</p>
+    {:else}
+      <svg id="graph"></svg>
+      <div class="infobox">
+        {#if selectedNodeId && selectedNodeInfo}
+          <h3>Node Info</h3>
+          <p><strong>Node ID:</strong> <a href={selectedNodeId} target="_blank">{selectedNodeId}</a></p>
+          <p><strong>Quantity:</strong> {selectedNodeInfo.quantityLabel}</p>
+          <p><strong>Symbol:</strong> {selectedNodeInfo.symbol}</p>
+          <p><strong>Units:</strong> {selectedNodeInfo.units}</p>
+          <p><strong>Concepts:</strong> {selectedNodeInfo.concepts}</p>
+          <p><strong>Linked To:</strong>
+            {#if linkedToList.length > 0}
+              <ul>
+                {#each linkedToList as link}
+                  <li>
+                    <button
+                      class="linked-to-btn"
+                      type="button"
+                      on:click={() => selectAndFocusNode(link.linkTo)}
+                    >
+                      {link.linkToLabel || link.linkTo}
+                    </button>
+                  </li>
+                {/each}
+              </ul>
+            {:else}
+              <span>None</span>
+            {/if}
+          </p>
+        {:else}
+          <p>Select a node to see details.</p>
+        {/if}
+      </div>
+    {/if}
+  </div>
 {:else if tab === 'units'}
   {#if loadingUnits}
     <p>Loading...</p>
@@ -272,19 +388,51 @@
     background: #f0f0f0;
   }
 
+  .graph-container {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    margin-top: 1rem;
+  }
+
   svg#graph {
-    width: 100%;
+    width: 800px;
     height: 600px;
     border: 1px solid #ccc;
-    margin-top: 1rem;
     background: white;
+    flex-shrink: 0;
   }
 
-  .tabs {
-    margin-top: 1rem;
+  .infobox {
+    margin-left: 2rem;
+    padding: 1rem;
+    border: 1px solid #bbb;
+    background: #f9f9f9;
+    min-width: 250px;
+    max-width: 350px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px #0001;
   }
 
-  .tabs button {
-    margin-right: 0.5rem;
+  .infobox h3 {
+    margin-top: 0;
+  }
+
+  .highlighted {
+    stroke: #ff9800 !important;
+    stroke-width: 4px !important;
+  }
+
+  .linked-to-btn {
+    background: none;
+    border: none;
+    color: #1976d2;
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 0;
+    font: inherit;
+  }
+  .linked-to-btn:hover {
+    color: #0d47a1;
   }
 </style>
