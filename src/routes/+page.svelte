@@ -5,7 +5,7 @@
   let results = [];
   let loading = true;
   let error = null;
-  let tab = 'table'; // "table" or "graph"
+  let tab = 'table';
 
   const endpointUrl = 'https://query.wikidata.org/sparql';
 
@@ -36,7 +36,6 @@
       const json = await response.json();
       results = json.results.bindings;
 
-      // Wait for results to render before drawing the graph
       setTimeout(drawGraph, 100);
     } catch (err) {
       error = err.message;
@@ -65,24 +64,34 @@
 
     const nodes = Array.from(nodesMap.values());
 
-    d3.select('#graph').selectAll('*').remove(); // Clear previous
+    d3.select('#graph').selectAll('*').remove();
 
     const svg = d3.select('#graph')
       .attr('width', width)
       .attr('height', height);
+
+    const container = svg.append('g'); // Zoomable group
+
+    const zoom = d3.zoom()
+      .scaleExtent([0.1, 5])
+      .on('zoom', (event) => {
+        container.attr('transform', event.transform);
+      });
+
+    svg.call(zoom);
 
     const simulation = d3.forceSimulation(nodes)
       .force('link', d3.forceLink(links).id(d => d.id).distance(150))
       .force('charge', d3.forceManyBody().strength(-400))
       .force('center', d3.forceCenter(width / 2, height / 2));
 
-    const link = svg.append('g')
+    const link = container.append('g')
       .attr('stroke', '#aaa')
       .selectAll('line')
       .data(links)
       .enter().append('line');
 
-    const node = svg.append('g')
+    const node = container.append('g')
       .attr('stroke', '#fff')
       .attr('stroke-width', 1.5)
       .selectAll('circle')
@@ -95,7 +104,7 @@
         .on('drag', dragged)
         .on('end', dragended));
 
-    const label = svg.append('g')
+    const label = container.append('g')
       .selectAll('text')
       .data(nodes)
       .enter().append('text')
@@ -138,17 +147,18 @@
     }
   }
 
-  // Redraw graph when tab is switched
   $: if (tab === 'graph' && results.length > 0) {
     setTimeout(drawGraph, 100);
   }
 </script>
 
+<!-- Tab Navigation -->
 <div>
   <button on:click={() => tab = 'table'} class:active={tab === 'table'}>📊 Table</button>
   <button on:click={() => tab = 'graph'} class:active={tab === 'graph'}>🕸 Graph</button>
 </div>
 
+<!-- Main Content -->
 {#if loading}
   <p>Loading...</p>
 {:else if error}
@@ -213,5 +223,6 @@
     height: 600px;
     border: 1px solid #ccc;
     margin-top: 1rem;
+    background: white;
   }
 </style>
