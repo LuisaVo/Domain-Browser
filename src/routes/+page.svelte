@@ -1,6 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import * as d3 from 'd3';
+  import { unitsQuery } from '$lib/queries/unitsQuery.js';
+  import { fetchSparql } from '$lib/api/sparql.js';
 
   let results = [];
   let loading = true;
@@ -9,7 +11,7 @@
 
   const endpointUrl = 'https://query.wikidata.org/sparql';
 
-  const sparqlQuery = `
+  const sparqlQueryLinks = `
     PREFIX wd: <http://www.wikidata.org/entity/>
     PREFIX wdt: <http://www.wikidata.org/prop/direct/>
     PREFIX bd: <http://www.bigdata.com/rdf#>
@@ -26,7 +28,7 @@
 
   onMount(async () => {
     try {
-      const url = endpointUrl + '?query=' + encodeURIComponent(sparqlQuery);
+      const url = endpointUrl + '?query=' + encodeURIComponent(sparqlQueryLinks);
       const response = await fetch(url, {
         headers: { 'Accept': 'application/sparql-results+json' }
       });
@@ -150,6 +152,28 @@
   $: if (tab === 'graph' && results.length > 0) {
     setTimeout(drawGraph, 100);
   }
+
+  let activeTab = 0;
+  let unitsResults = [];
+  let loadingUnits = false;
+
+  async function loadUnits() {
+    loadingUnits = true;
+    const data = await fetchSparql(unitsQuery);
+    unitsResults = data.results.bindings.map(row => ({
+      quantity: row.quantity.value,
+      quantityLabel: row.quantityLabel?.value ?? '',
+      symbol: row.symbol?.value ?? '',
+      units: row.units?.value ?? '',
+      concepts: row.concepts?.value ?? ''
+    }));
+    loadingUnits = false;
+  }
+
+  // Load units data when the third tab is selected
+  $: if (activeTab === 2 && unitsResults.length === 0 && !loadingUnits) {
+    loadUnits();
+  }
 </script>
 
 <!-- Tab Navigation -->
@@ -185,6 +209,49 @@
     </table>
   {:else if tab === 'graph'}
     <svg id="graph"></svg>
+  {/if}
+{/if}
+
+<div class="tabs">
+  <button on:click={() => activeTab = 0}>First Query</button>
+  <button on:click={() => activeTab = 1}>Second Query</button>
+  <button on:click={() => activeTab = 2}>Units & Symbols</button>
+</div>
+
+{#if activeTab === 0}
+  <!-- First query results -->
+{/if}
+
+{#if activeTab === 1}
+  <!-- Second query results -->
+{/if}
+
+{#if activeTab === 2}
+  {#if loadingUnits}
+    <p>Loading...</p>
+  {:else}
+    <table>
+      <thead>
+        <tr>
+          <th>Quantity</th>
+          <th>Label</th>
+          <th>Symbol</th>
+          <th>Units</th>
+          <th>Concepts</th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each unitsResults as row}
+          <tr>
+            <td>{row.quantity}</td>
+            <td>{row.quantityLabel}</td>
+            <td>{row.symbol}</td>
+            <td>{row.units}</td>
+            <td>{row.concepts}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
   {/if}
 {/if}
 
@@ -224,5 +291,13 @@
     border: 1px solid #ccc;
     margin-top: 1rem;
     background: white;
+  }
+
+  .tabs {
+    margin-top: 1rem;
+  }
+
+  .tabs button {
+    margin-right: 0.5rem;
   }
 </style>
