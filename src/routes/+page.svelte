@@ -1,50 +1,59 @@
 <script>
   import { onMount } from 'svelte';
   import * as d3 from 'd3';
+  import { sparqlQueryLinks } from '$lib/queries/parentQuery.js';
   import { unitsQuery } from '$lib/queries/unitsQuery.js';
   import { fetchSparql } from '$lib/api/sparql.js';
 
-  let results = [];
-  let loading = true;
-  let error = null;
   let tab = 'table';
+  let activeTab = 0;
 
-  const endpointUrl = 'https://query.wikidata.org/sparql';
+  // Data and loading states for each query
+  let results = [];
+  let unitsResults = [];
+  let loading = true;
+  let loadingUnits = true;
+  let error = null;
 
-  const sparqlQueryLinks = `
-    PREFIX wd: <http://www.wikidata.org/entity/>
-    PREFIX wdt: <http://www.wikidata.org/prop/direct/>
-    PREFIX bd: <http://www.bigdata.com/rdf#>
-
-    SELECT DISTINCT ?item ?itemLabel ?linkTo WHERE {
-      ?baseQuantity (wdt:P279*) wd:Q107715;
-                  (wdt:P2579*) wd:Q11473.
-      ?item (wdt:P279*) ?baseQuantity;
-            (wdt:P279) ?linkTo.
-      ?linkTo (wdt:P279*) wd:Q107715.
-      SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }
-    }
-  `;
-
+  // Fetch all queries on mount
   onMount(async () => {
     try {
-      const url = endpointUrl + '?query=' + encodeURIComponent(sparqlQueryLinks);
-      const response = await fetch(url, {
-        headers: { 'Accept': 'application/sparql-results+json' }
-      });
+      // Fetch first query (links)
+      const dataLinks = await fetchSparql(sparqlQueryLinks);
+      results = dataLinks.results.bindings;
+      loading = false;
 
-      if (!response.ok) throw new Error('SPARQL query failed');
+      // Fetch units query
+      const dataUnits = await fetchSparql(unitsQuery);
+      unitsResults = dataUnits.results.bindings.map(row => ({
+        quantity: row.quantity.value,
+        quantityLabel: row.quantityLabel?.value ?? '',
+        symbol: row.symbol?.value ?? '',
+        units: row.units?.value ?? '',
+        concepts: row.concepts?.value ?? ''
+      }));
+      loadingUnits = false;
 
-      const json = await response.json();
-      results = json.results.bindings;
+      // Optionally: fetch second query here and store as needed
 
-      setTimeout(drawGraph, 100);
+      // Draw graph if graph tab is active
+      if (tab === 'graph' && results.length > 0) {
+        setTimeout(drawGraph, 100);
+      }
     } catch (err) {
       error = err.message;
-    } finally {
       loading = false;
+      loadingUnits = false;
     }
   });
+
+  // Redraw graph when switching to graph tab
+  $: if (tab === 'graph' && results.length > 0) {
+    setTimeout(drawGraph, 100);
+  }
+
+  // Status indicator
+  $: allLoaded = !loading && !loadingUnits;
 
   function drawGraph() {
     const width = 800;
@@ -148,47 +157,34 @@
       d.fy = null;
     }
   }
-
-  $: if (tab === 'graph' && results.length > 0) {
-    setTimeout(drawGraph, 100);
-  }
-
-  let activeTab = 0;
-  let unitsResults = [];
-  let loadingUnits = false;
-
-  async function loadUnits() {
-    loadingUnits = true;
-    const data = await fetchSparql(unitsQuery);
-    unitsResults = data.results.bindings.map(row => ({
-      quantity: row.quantity.value,
-      quantityLabel: row.quantityLabel?.value ?? '',
-      symbol: row.symbol?.value ?? '',
-      units: row.units?.value ?? '',
-      concepts: row.concepts?.value ?? ''
-    }));
-    loadingUnits = false;
-  }
-
-  // Load units data when the third tab is selected
-  $: if (activeTab === 2 && unitsResults.length === 0 && !loadingUnits) {
-    loadUnits();
-  }
 </script>
+
+<!-- Page Title -->
+<h1>Domain Browser</h1>
+<!-- Status Indicator -->
+<p>
+  Status: 
+  {#if allLoaded}
+    <span style="color: green;">All SPARQL results loaded</span>
+  {:else}
+    <span style="color: orange;">Loading SPARQL results...</span>
+  {/if}
+</p>
 
 <!-- Tab Navigation -->
 <div>
   <button on:click={() => tab = 'table'} class:active={tab === 'table'}>📊 Table</button>
   <button on:click={() => tab = 'graph'} class:active={tab === 'graph'}>🕸 Graph</button>
+  <button on:click={() => tab = 'units'} class:active={tab === 'units'}>Units & Symbols</button>
 </div>
 
 <!-- Main Content -->
-{#if loading}
-  <p>Loading...</p>
-{:else if error}
+{#if error}
   <p style="color: red;">Error: {error}</p>
-{:else}
-  {#if tab === 'table'}
+{:else if tab === 'table'}
+  {#if loading}
+    <p>Loading...</p>
+  {:else}
     <table>
       <thead>
         <tr>
@@ -207,26 +203,14 @@
         {/each}
       </tbody>
     </table>
-  {:else if tab === 'graph'}
+  {/if}
+{:else if tab === 'graph'}
+  {#if loading}
+    <p>Loading...</p>
+  {:else}
     <svg id="graph"></svg>
   {/if}
-{/if}
-
-<div class="tabs">
-  <button on:click={() => activeTab = 0}>First Query</button>
-  <button on:click={() => activeTab = 1}>Second Query</button>
-  <button on:click={() => activeTab = 2}>Units & Symbols</button>
-</div>
-
-{#if activeTab === 0}
-  <!-- First query results -->
-{/if}
-
-{#if activeTab === 1}
-  <!-- Second query results -->
-{/if}
-
-{#if activeTab === 2}
+{:else if tab === 'units'}
   {#if loadingUnits}
     <p>Loading...</p>
   {:else}
@@ -256,6 +240,9 @@
 {/if}
 
 <style>
+  h1 {
+    margin-bottom: 0.5rem;
+  }
   button {
     padding: 0.5rem 1rem;
     margin-right: 0.5rem;
