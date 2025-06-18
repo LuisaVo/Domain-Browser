@@ -4,6 +4,8 @@
   import { sparqlQueryLinks } from '$lib/queries/parentQuery.js';
   import { unitsQuery } from '$lib/queries/unitsQuery.js';
   import { fetchSparql } from '$lib/api/sparql.js';
+  import ClusteredKnowledgeGraph from '$lib/components/ClusteredKnowledgeGraph.svelte';
+  
 
   let tab = 'table';
 
@@ -259,6 +261,7 @@
   <button on:click={() => tab = 'table'} class:active={tab === 'table'}>📊 Table</button>
   <button on:click={() => tab = 'graph'} class:active={tab === 'graph'}>🕸 Graph</button>
   <button on:click={() => tab = 'units'} class:active={tab === 'units'}>Units & Symbols</button>
+  <button on:click={() => tab = 'clustered'} class:active={tab === 'clustered'}>Clustered Graph</button>
 </div>
 
 <!-- Main Content -->
@@ -353,6 +356,8 @@
       </tbody>
     </table>
   {/if}
+{:else if tab === 'clustered'}
+  <ClusteredKnowledgeGraph />
 {/if}
 
 <style>
@@ -435,4 +440,5 @@
   .linked-to-btn:hover {
     color: #0d47a1;
   }
+
 </style>
