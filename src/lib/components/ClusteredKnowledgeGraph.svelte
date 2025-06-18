@@ -284,7 +284,7 @@
         return;
       }
       const alpha = edge.type === 'inter' ? 0.3 : 0.6;
-      const color = edge.type === 'inter' ? '#ffffff' : clusters[from.cluster].color;
+      const color = edge.type === 'inter' ? '#000000' : clusters[from.cluster].color;
       ctx.strokeStyle = color + Math.floor(alpha * edge.strength * 255).toString(16).padStart(2, '0');
       ctx.lineWidth = edge.strength * 2 * camera.zoom;
       ctx.beginPath();
@@ -330,11 +330,17 @@
       ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      if (node.connections > 5 && camera.zoom > 0.6) {
-        ctx.fillStyle = 'white';
+      if (camera.zoom > 2) {
+        ctx.fillStyle = '#595959';
         ctx.font = Math.floor(10 * camera.zoom) + 'px Segoe UI';
         ctx.textAlign = 'center';
-        ctx.fillText(node.connections.toString(), screenX, screenY + 3);
+        ctx.fillText(node.name, screenX, screenY - radius - 5);
+      }
+      else if (node.importance > 0.5 && camera.zoom > 0.6) {
+        ctx.fillStyle = '#595959';
+        ctx.font = Math.floor(10 * camera.zoom) + 'px Segoe UI';
+        ctx.textAlign = 'center';
+        ctx.fillText(node.name, screenX, screenY - radius + 3);
       }
     });
     visibleNodes = visibleCount;
@@ -426,18 +432,26 @@
     window.addEventListener('resize', initCanvas);
 
     // Mouse events
+    let dragOrigin = { x: 0, y: 0 };
+    let mouseStart = { x: 0, y: 0 };
+
     canvas.addEventListener('mousedown', (e) => {
       isDragging = true;
-      dragStart.x = e.clientX - camera.x;
-      dragStart.y = e.clientY - camera.y;
+      const rect = canvas.getBoundingClientRect();
+      mouseStart.x = e.clientX - rect.left;
+      mouseStart.y = e.clientY - rect.top;
+      dragOrigin.x = camera.x;
+      dragOrigin.y = camera.y;
     });
     canvas.addEventListener('mousemove', (e) => {
-      mousePos.x = e.clientX;
-      mousePos.y = e.clientY;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      mousePos.x = mouseX;
+      mousePos.y = mouseY;
       if (isDragging) {
-        // Flip panning direction: moving mouse left moves graph left
-        camera.x = dragStart.x - e.clientX;
-        camera.y = dragStart.y - e.clientY;
+        camera.x = dragOrigin.x - (mouseX - mouseStart.x) / camera.zoom;
+        camera.y = dragOrigin.y - (mouseY - mouseStart.y) / camera.zoom;
       }
     });
     canvas.addEventListener('mouseup', () => isDragging = false);
